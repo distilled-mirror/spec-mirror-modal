@@ -69,6 +69,13 @@ enum AppStopSource {
   APP_STOP_SOURCE_WEB = 3;
 }
 
+// CPU architecture an image is built for and must run on.
+enum Arch {
+  ARCH_UNSPECIFIED = 0;
+  ARCH_X86_64 = 1;
+  ARCH_AARCH64 = 2;
+}
+
 enum CertificateStatus {
   CERTIFICATE_STATUS_PENDING = 0;
   CERTIFICATE_STATUS_ISSUED = 1;
@@ -2285,6 +2292,13 @@ message FunctionFinishInputsRequest {
   uint32 num_inputs = 3;
 }
 
+message FunctionGetByIdRequest {
+  string function_id = 1;
+}
+
+message FunctionGetByIdResponse {
+  FunctionData function = 1;
+}
 
 message FunctionGetCallGraphRequest {
   string function_call_id = 2;
@@ -2727,6 +2741,10 @@ message Image {
 
   // Volume mount for RUN commands
   repeated VolumeMount volume_mounts = 23;
+
+  // CPU architecture the image is built for. Images with an unspecified
+  // arch predate this field and are treated as x86_64.
+  Arch arch = 24;
 }
 
 message ImageBuildChainGetRequest {
@@ -3552,6 +3570,23 @@ message Sandbox {
   repeated string inbound_cidr_allowlist = 39;
 
   StringMap environment_variables = 40;
+}
+
+message SandboxContainerCreateV2Request {
+  // Sandbox the container joins; it runs inside that sandbox's task.
+  string sandbox_id = 1;
+  // Logical container name, unique within the sandbox.
+  string container_name = 2;
+  // Same definition type as SandboxCreateV2. Fields a container cannot honor
+  // (resources, timeouts, scheduling constraints, ...) are rejected.
+  Sandbox definition = 3;
+  StringMap ephemeral_secrets = 4;
+  map<string, StringMap> cloud_bucket_mount_credentials = 5;
+}
+
+message SandboxContainerCreateV2Response {
+  string container_id = 1;
+  string container_name = 2;
 }
 
 message SandboxCreateConnectTokenRequest {
@@ -4875,6 +4910,7 @@ service ModalClient {
   rpc FunctionCreate(FunctionCreateRequest) returns (FunctionCreateResponse);
   rpc FunctionFinishInputs(FunctionFinishInputsRequest) returns (google.protobuf.Empty); // For map RPCs, to signal that all inputs have been sent
   rpc FunctionGet(FunctionGetRequest) returns (FunctionGetResponse);
+  rpc FunctionGetById(FunctionGetByIdRequest) returns (FunctionGetByIdResponse);
   rpc FunctionGetCallGraph(FunctionGetCallGraphRequest) returns (FunctionGetCallGraphResponse);
   rpc FunctionGetCurrentStats(FunctionGetCurrentStatsRequest) returns (FunctionStats);
   rpc FunctionGetDynamicConcurrency(FunctionGetDynamicConcurrencyRequest) returns (FunctionGetDynamicConcurrencyResponse);
@@ -4936,6 +4972,7 @@ service ModalClient {
   rpc QueuePut(QueuePutRequest) returns (google.protobuf.Empty);
 
   // Sandboxes
+  rpc SandboxContainerCreateV2(SandboxContainerCreateV2Request) returns (SandboxContainerCreateV2Response);
   rpc SandboxCreate(SandboxCreateRequest) returns (SandboxCreateResponse);
   rpc SandboxCreateConnectToken(SandboxCreateConnectTokenRequest) returns (SandboxCreateConnectTokenResponse);
   rpc SandboxCreateConnectTokenV2(SandboxCreateConnectTokenRequest) returns (SandboxCreateConnectTokenResponse);

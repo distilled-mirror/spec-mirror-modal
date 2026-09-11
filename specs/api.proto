@@ -190,6 +190,15 @@ enum EndpointTaskType {
   ENDPOINT_TASK_TYPE_EMBEDDING = 2;
 }
 
+// Partial-update signal for EnvironmentUpdateRequest. Omitted means no-op.
+// INHERIT clears the environment override so the workspace default applies.
+enum EnvironmentBlockUnauthenticatedResources {
+  ENVIRONMENT_BLOCK_UNAUTHENTICATED_RESOURCES_UNSPECIFIED = 0;
+  ENVIRONMENT_BLOCK_UNAUTHENTICATED_RESOURCES_INHERIT = 1;
+  ENVIRONMENT_BLOCK_UNAUTHENTICATED_RESOURCES_BLOCK = 2;
+  ENVIRONMENT_BLOCK_UNAUTHENTICATED_RESOURCES_ALLOW = 3;
+}
+
 enum EnvironmentRole {
   ENVIRONMENT_ROLE_UNSPECIFIED = 0;
   ENVIRONMENT_ROLE_VIEWER = 1;
@@ -253,6 +262,12 @@ enum IdentityProviderType {
   IDENTITY_PROVIDER_TYPE_GITHUB = 1;
   IDENTITY_PROVIDER_TYPE_OKTA = 2;
   IDENTITY_PROVIDER_TYPE_GOOGLE_OAUTH = 3;
+}
+
+enum LLMEngine {
+  LLM_ENGINE_UNSPECIFIED = 0;
+  LLM_ENGINE_SGLANG = 1;
+  LLM_ENGINE_VLLM = 2;
 }
 
 enum MemberRole {
@@ -321,6 +336,13 @@ enum SeekWhence {
   SEEK_SET = 0;
   SEEK_CUR = 1;
   SEEK_END = 2;
+}
+
+enum ServerInferenceStatsStatus {
+  SERVER_INFERENCE_STATS_STATUS_UNSPECIFIED = 0;
+  SERVER_INFERENCE_STATS_STATUS_AVAILABLE = 1;
+  SERVER_INFERENCE_STATS_STATUS_NO_DATA = 2;
+  SERVER_INFERENCE_STATS_STATUS_UNAVAILABLE = 3;
 }
 
 enum SystemErrorCode {
@@ -944,6 +966,18 @@ message BlobGetRequest {
 
 message BlobGetResponse {
   string download_url = 1;
+}
+
+message BlobUploadResult {
+  enum Outcome {
+    OUTCOME_UNSPECIFIED = 0;
+    OUTCOME_SUCCESS = 1;
+    OUTCOME_FAILURE = 2;
+  }
+
+  string blob_id = 1; // The blob id (from BlobCreateResponse) that this upload attempt targeted.
+  Outcome outcome = 2;
+  uint64 throughput_bytes_s = 3;
 }
 
 message BuildFunction {
@@ -1761,6 +1795,7 @@ message EnvironmentListItem {
   bool spend_limit_reached = 14;
   EnvironmentType environment_type = 15;
   optional EnvironmentRole default_member_role = 16;
+  optional bool block_unauthenticated_resources = 17;
 }
 
 message EnvironmentListResponse {
@@ -1806,6 +1841,10 @@ message EnvironmentSettings {
   string webhook_suffix = 2;
   optional int32 max_concurrent_gpus = 3;
   optional int32 max_concurrent_tasks = 4;
+  // When true, new unauthenticated web functions, Servers, tunnels, and
+  // Endpoints in this environment are rejected. Unset inherits the workspace
+  // default.
+  optional bool block_unauthenticated_resources = 5;
 }
 
 message EnvironmentUpdateRequest {
@@ -1814,6 +1853,7 @@ message EnvironmentUpdateRequest {
   google.protobuf.StringValue web_suffix = 3;
   optional int32 max_concurrent_tasks = 4;
   optional int32 max_concurrent_gpus = 5;
+  optional EnvironmentBlockUnauthenticatedResources block_unauthenticated_resources = 6;
 }
 
 // A file entry when listing files in a volume or network file system.
@@ -2327,6 +2367,14 @@ message FunctionGetDynamicConcurrencyResponse {
   uint32 concurrency = 1;
 }
 
+message FunctionGetFlashAuthTokenRequest {
+  string function_id = 1;
+}
+
+message FunctionGetFlashAuthTokenResponse {
+  string token = 1;
+}
+
 message FunctionGetInputsItem {
   string input_id = 1;
   FunctionInput input = 2;
@@ -2401,6 +2449,14 @@ message FunctionGetResponse {
   FunctionHandleMetadata handle_metadata = 2;
   repeated Warning server_warnings = 4;
   FunctionData function = 5;
+}
+
+message FunctionGetSchedulingParamsRequest {
+  string function_id = 1;
+}
+
+message FunctionGetSchedulingParamsResponse {
+  AutoscalerConfiguration autoscaler_configuration = 1;
 }
 
 message FunctionGetSerializedRequest {
@@ -2496,6 +2552,16 @@ message FunctionInput {
   optional string method_name = 11; // specifies which method to call when calling a class/object function
 }
 
+// Structured error detail attached to a failed FunctionGet lookup.
+message FunctionLookupError {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    REASON_CLASS_NAME_USED = 1;
+  }
+
+  Reason reason = 1;
+}
+
 message FunctionMapRequest {
   string function_id = 1;
   string parent_input_id = 2;
@@ -2561,14 +2627,13 @@ message FunctionPrecreateResponse {
   FunctionHandleMetadata handle_metadata = 2;
 }
 
-
-
 message FunctionPutInputsItem {
   int32 idx = 1;
   FunctionInput input = 2;
   bool r2_failed = 3;
   reserved 4; // r2_latency_ms
   uint64 r2_throughput_bytes_s = 5;
+  repeated BlobUploadResult blob_upload_results = 6;
 }
 
 message FunctionPutInputsRequest {
@@ -4037,6 +4102,58 @@ message SecretUpdateRequest {
   repeated Update updates = 2;
 }
 
+message ServerGetTimeRangeStatsRequest {
+  string function_id = 1;
+  google.protobuf.Timestamp since = 2;  // Inclusive.
+  google.protobuf.Timestamp until = 3;  // Exclusive.
+  // Filter stats for a specific container
+  optional string container_id = 4;
+}
+
+message ServerGetTimeRangeStatsResponse {
+  message ServerInferenceStats {
+    LLMEngine engine = 1;
+    ServerInferenceStatsStatus status = 2;
+
+    // Metrics include time_to_first_token, inter_token_latency, and
+    // end_to_end_latency, subject to change as requirements evolve.
+    map<string, StatsPercentileDistribution> percentile_stats = 3;
+
+    // Metrics include input_tokens_per_second, cached_input_tokens_per_second,
+    // and output_tokens_per_second, subject to change as requirements evolve.
+    map<string, double> scalar_stats = 4;
+  }
+
+  message ServerStatusCodeCount {
+    uint32 status_code = 1;
+    uint64 count = 2;
+  }
+
+  google.protobuf.Timestamp since = 1;  // Inclusive.
+  google.protobuf.Timestamp until = 2;  // Exclusive.
+
+  uint64 request_count = 3;
+  repeated ServerStatusCodeCount request_count_by_status_code = 4;
+  double request_rate_per_second = 5;
+
+  // Metrics include request_latency, subject to change as requirements evolve.
+  map<string, StatsPercentileDistribution> request_percentile_stats = 6;
+
+  // Metrics include startup_time, cpu_usage, memory_usage, and
+  // gpu_utilization, subject to change as requirements evolve.
+  map<string, StatsPercentileDistribution> container_percentile_stats = 7;
+
+  // Absent when the image does not contain a supported inference engine.
+  ServerInferenceStats inference = 8;
+
+  // Container lifecycle counts. Started and errored containers are counted when
+  // the corresponding event occurs in the requested time range. Creating containers
+  // were enqueued but had not started or finished at the exclusive end of the range.
+  uint64 container_started_count = 9;
+  uint64 container_error_count = 10;
+  uint64 container_creating_at_end_count = 11;
+}
+
 message ServiceUser {
   string name = 1;
   string token_id = 2;
@@ -4809,6 +4926,16 @@ message WorkspaceSetDefaultEnvironmentRequest {
   string environment_name = 1;
 }
 
+message WorkspaceSetDefaultEnvironmentSettingsRequest {
+  // Omitted = no-op. INHERIT clears the workspace default so environments
+  // with no override have no block. Rejects UNSPECIFIED.
+  optional EnvironmentBlockUnauthenticatedResources block_unauthenticated_resources = 1;
+}
+
+message WorkspaceSetDefaultEnvironmentSettingsResponse {
+  EnvironmentSettings default_environment_settings = 1;
+}
+
 message WorkspaceSetImageBuilderVersionRequest {
   string new_image_builder_version = 1;
 }
@@ -4955,8 +5082,10 @@ service ModalClient {
   rpc FunctionGetCallGraph(FunctionGetCallGraphRequest) returns (FunctionGetCallGraphResponse);
   rpc FunctionGetCurrentStats(FunctionGetCurrentStatsRequest) returns (FunctionStats);
   rpc FunctionGetDynamicConcurrency(FunctionGetDynamicConcurrencyRequest) returns (FunctionGetDynamicConcurrencyResponse);
+  rpc FunctionGetFlashAuthToken(FunctionGetFlashAuthTokenRequest) returns (FunctionGetFlashAuthTokenResponse);
   rpc FunctionGetInputs(FunctionGetInputsRequest) returns (FunctionGetInputsResponse);  // For containers to request next call
   rpc FunctionGetOutputs(FunctionGetOutputsRequest) returns (FunctionGetOutputsResponse);  // Returns the next result(s) for an entire function call (FunctionMap)
+  rpc FunctionGetSchedulingParams(FunctionGetSchedulingParamsRequest) returns (FunctionGetSchedulingParamsResponse);
   rpc FunctionGetSerialized(FunctionGetSerializedRequest) returns (FunctionGetSerializedResponse);
   rpc FunctionGetTimeRangeStats(FunctionGetTimeRangeStatsRequest) returns (FunctionGetTimeRangeStatsResponse);
   rpc FunctionMap(FunctionMapRequest) returns (FunctionMapResponse);
@@ -5057,6 +5186,9 @@ service ModalClient {
   rpc SecretList(SecretListRequest) returns (SecretListResponse);
   rpc SecretUpdate(SecretUpdateRequest) returns (google.protobuf.Empty);
 
+  // Servers
+  rpc ServerGetTimeRangeStats(ServerGetTimeRangeStatsRequest) returns (ServerGetTimeRangeStatsResponse);
+
   // Service users
   rpc ServiceUserList(google.protobuf.Empty) returns (ServiceUserListResponse);
 
@@ -5131,6 +5263,7 @@ service ModalClient {
   rpc WorkspaceMembersList(google.protobuf.Empty) returns (WorkspaceMembersListResponse);
   rpc WorkspaceNameLookup(google.protobuf.Empty) returns (WorkspaceNameLookupResponse);
   rpc WorkspaceSetDefaultEnvironment(WorkspaceSetDefaultEnvironmentRequest) returns (google.protobuf.Empty);
+  rpc WorkspaceSetDefaultEnvironmentSettings(WorkspaceSetDefaultEnvironmentSettingsRequest) returns (WorkspaceSetDefaultEnvironmentSettingsResponse);
   rpc WorkspaceSetImageBuilderVersion(WorkspaceSetImageBuilderVersionRequest) returns (WorkspaceSetImageBuilderVersionResponse);
   rpc WorkspaceSettings(google.protobuf.Empty) returns (WorkspaceSettingsResponse);
 }

@@ -228,6 +228,20 @@ enum FileDescriptor {
   FILE_DESCRIPTOR_INFO = 3;
 }
 
+enum FunctionCallInputStatus {
+  FUNCTION_CALL_INPUT_STATUS_UNSPECIFIED = 0;
+  FUNCTION_CALL_INPUT_STATUS_PENDING = 1;
+  FUNCTION_CALL_INPUT_STATUS_RUNNING = 2;
+  FUNCTION_CALL_INPUT_STATUS_SUCCESS = 3;
+  FUNCTION_CALL_INPUT_STATUS_FAILURE = 4;
+  FUNCTION_CALL_INPUT_STATUS_TIMEOUT = 5;
+  FUNCTION_CALL_INPUT_STATUS_TERMINATED = 6;
+  FUNCTION_CALL_INPUT_STATUS_INIT_FAILURE = 7;
+  FUNCTION_CALL_INPUT_STATUS_INTERNAL_FAILURE = 8;
+  FUNCTION_CALL_INPUT_STATUS_IDLE_TIMEOUT = 9;
+  FUNCTION_CALL_INPUT_STATUS_MEMORY_MANAGER_EVICTION = 10;
+}
+
 enum FunctionCallInvocationType {
   FUNCTION_CALL_INVOCATION_TYPE_UNSPECIFIED = 0;
   FUNCTION_CALL_INVOCATION_TYPE_SYNC_LEGACY = 1;
@@ -2157,6 +2171,25 @@ message FunctionCallCancelRequest {
   optional string function_id = 3; // Only provided for sync input cancellation on the input plane. Async input cancellation does not provide this field this.
 }
 
+message FunctionCallFetchRequest {
+  message Tail {
+    // Number of most recent inputs to return. Must be between 1 and 1000.
+    uint32 count = 1;
+  }
+
+  string function_id = 1;
+  oneof query_oneof {
+    Tail tail = 3;
+  }
+  // Include the root Function and its eligible variants.
+  bool all_variants = 4;
+}
+
+message FunctionCallFetchResponse {
+  // The requested number of most recent inputs from the last seven days, ordered from newest to oldest.
+  repeated FunctionCallInputInfo function_call_inputs = 1;
+}
+
 message FunctionCallFromIdRequest {
   string function_call_id = 1;
 }
@@ -2205,6 +2238,17 @@ message FunctionCallInfo {
   InputCategoryInfo timeout_inputs = 15;
   InputCategoryInfo cancelled_inputs = 16;
   int32 total_inputs = 17;
+}
+
+message FunctionCallInputInfo {
+  google.protobuf.Timestamp enqueued_at = 1;
+  optional google.protobuf.Timestamp started_at = 2;
+  optional string container_id = 3;
+  optional double startup_time_seconds = 4;
+  optional double execution_time_seconds = 5;
+  FunctionCallInputStatus status = 6;
+  string function_call_id = 7;
+  optional string service_method_name = 8;
 }
 
 message FunctionCallListRequest {
@@ -2568,6 +2612,20 @@ message FunctionInput {
   optional string method_name = 11; // specifies which method to call when calling a class/object function
 }
 
+message FunctionListVariantsRequest {
+  string function_id = 1;
+  FunctionVariantCursor cursor = 2;
+  uint32 limit = 3;
+}
+
+message FunctionListVariantsResponse {
+  repeated FunctionVariantInfo infos = 1;
+  // Pass back as cursor to fetch the next page. Unset once the listing is complete.
+  FunctionVariantCursor next_cursor = 2;
+  // Set by the server when it ordered the variants by how many tasks each is running, busiest first.
+  bool ordered_by_task_count = 3;
+}
+
 // Structured error detail attached to a failed FunctionGet lookup.
 message FunctionLookupError {
   enum Reason {
@@ -2733,6 +2791,17 @@ message FunctionUpdateSchedulingParamsRequest {
 
 message FunctionUpdateSchedulingParamsResponse {
   AutoscalerSettings current_settings = 1;
+}
+
+message FunctionVariantCursor {
+  double created_before = 1;
+  string function_id = 2;
+}
+
+message FunctionVariantInfo {
+  string function_id = 1;
+  bytes serialized_params = 2;
+  FunctionOptions function_options = 3;
 }
 
 message GPUConfig {
@@ -3781,6 +3850,9 @@ message SandboxGetExitSnapshotResponse {
     ERROR_CODE_UNSPECIFIED = 0;
     ERROR_CODE_TIMEOUT = 1;
     ERROR_CODE_INTERNAL = 2;
+    // The sandbox exited without leaving a consistent filesystem (e.g. killed
+    // before it could flush) and recovery failed, so no exit snapshot exists.
+    ERROR_CODE_FILESYSTEM_INCONSISTENT = 3;
   }
 
   message Error {
@@ -4117,6 +4189,7 @@ message SecretListResponse {
 message SecretMetadata {
   string name = 1;
   CreationInfo creation_info = 2;
+  repeated string keys = 3;
 }
 
 message SecretUpdateRequest {
@@ -4178,6 +4251,31 @@ message ServerGetTimeRangeStatsResponse {
   uint64 container_started_count = 9;
   uint64 container_error_count = 10;
   uint64 container_creating_at_end_count = 11;
+}
+
+message ServerRequestFetchRequest {
+  message Tail {
+    // Number of most recent requests to return. Must be between 1 and 1000.
+    uint32 count = 1;
+  }
+
+  string function_id = 1;
+  oneof query_oneof {
+    Tail tail = 3;
+  }
+}
+
+message ServerRequestFetchResponse {
+  // The requested number of most recent requests from the last seven days, ordered from newest to oldest.
+  repeated ServerRequestInfo requests = 1;
+}
+
+message ServerRequestInfo {
+  string route = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string container_id = 3;
+  double duration_seconds = 4;
+  int32 status = 5;
 }
 
 message ServiceUser {
@@ -4456,6 +4554,7 @@ message TokenFlowCreateRequest {
   string utm_source = 3;
   int32 localhost_port = 4;
   string next_url = 5;
+  uint32 expires_in_seconds = 6;
 }
 
 message TokenFlowCreateResponse {
@@ -5099,6 +5198,7 @@ service ModalClient {
   rpc FunctionAsyncInvoke(FunctionAsyncInvokeRequest) returns (FunctionAsyncInvokeResponse);
   rpc FunctionBindParams(FunctionBindParamsRequest) returns (FunctionBindParamsResponse);
   rpc FunctionCallCancel(FunctionCallCancelRequest) returns (google.protobuf.Empty);
+  rpc FunctionCallFetch(FunctionCallFetchRequest) returns (FunctionCallFetchResponse);
   rpc FunctionCallFromId(FunctionCallFromIdRequest) returns (FunctionCallFromIdResponse);
   rpc FunctionCallGetDataIn(FunctionCallGetDataRequest) returns (stream DataChunk);
   rpc FunctionCallGetDataOut(FunctionCallGetDataRequest) returns (stream DataChunk);
@@ -5118,6 +5218,7 @@ service ModalClient {
   rpc FunctionGetSchedulingParams(FunctionGetSchedulingParamsRequest) returns (FunctionGetSchedulingParamsResponse);
   rpc FunctionGetSerialized(FunctionGetSerializedRequest) returns (FunctionGetSerializedResponse);
   rpc FunctionGetTimeRangeStats(FunctionGetTimeRangeStatsRequest) returns (FunctionGetTimeRangeStatsResponse);
+  rpc FunctionListVariants(FunctionListVariantsRequest) returns (FunctionListVariantsResponse);
   rpc FunctionMap(FunctionMapRequest) returns (FunctionMapResponse);
   rpc FunctionPrecreate(FunctionPrecreateRequest) returns (FunctionPrecreateResponse);
   rpc FunctionPutInputs(FunctionPutInputsRequest) returns (FunctionPutInputsResponse);
@@ -5218,6 +5319,7 @@ service ModalClient {
 
   // Servers
   rpc ServerGetTimeRangeStats(ServerGetTimeRangeStatsRequest) returns (ServerGetTimeRangeStatsResponse);
+  rpc ServerRequestFetch(ServerRequestFetchRequest) returns (ServerRequestFetchResponse);
 
   // Service users
   rpc ServiceUserList(google.protobuf.Empty) returns (ServiceUserListResponse);

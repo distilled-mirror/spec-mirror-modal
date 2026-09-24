@@ -550,6 +550,8 @@ message AppGetInfoResponse {
     // True for Web Functions and classes with web methods; false for Servers.
     bool web_function = 3;
     optional bool requires_proxy_auth = 4;
+    // True for Sessioned Servers.
+    bool is_sessioned = 5;
   }
 
   AppHandleMetadata info = 1;
@@ -3704,7 +3706,8 @@ message Sandbox {
   // Set by the backend at snapshot creation time.
   optional string runsc_runtime_version = 27;
 
-  // If set, overrides the runtime used by the function, either "runc" or "gvisor".
+  // Runtime the sandbox runs in: "vm" for a virtual machine, or a container
+  // runtime such as "gvisor". Leave it unset to let Modal pick.
   optional string runtime = 28;
 
   // If set, the sandbox will be created with verbose logging enabled.
@@ -4979,6 +4982,11 @@ message WebhookTokenListResponse {
   repeated WebhookToken tokens = 1;
 }
 
+message WebhookTokenUpdateRequest {
+  string token_id = 1;
+  optional string name = 2;
+}
+
 message WorkspaceBillingRatesRequest {}
 
 message WorkspaceBillingRatesResponse {
@@ -5396,6 +5404,7 @@ service ModalClient {
   rpc WebhookTokenEnvironmentRemove(WebhookTokenEnvironmentRemoveRequest) returns (google.protobuf.Empty);
   rpc WebhookTokenList(google.protobuf.Empty) returns (WebhookTokenListResponse);
   rpc WebhookTokenListForEnvironment(WebhookTokenListForEnvironmentRequest) returns (WebhookTokenListResponse);
+  rpc WebhookTokenUpdate(WebhookTokenUpdateRequest) returns (WebhookToken);
 
   // Workspaces
   rpc WorkspaceBillingRates(WorkspaceBillingRatesRequest) returns (WorkspaceBillingRatesResponse);

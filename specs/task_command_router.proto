@@ -87,6 +87,8 @@ message TaskContainerCreateRequest {
   // reserve (experimental option vm_sidecar_memory_reserve_mib); unset
   // consumes whatever is left of it. Ignored without a reserve.
   optional uint32 memory_reserve_consume_mib = 12;
+  // Applied in order. Cannot be combined with secret_ids or env.
+  repeated modal.client.SecretSource secret_sources = 13;
 }
 
 message TaskContainerCreateResponse {
@@ -190,6 +192,8 @@ message TaskExecStartRequest {
   string container_id = 11;
   // Environment variables to set directly for the exec'd command.
   map<string, string> env = 12;
+  // Applied in order. Cannot be combined with secret_ids or env.
+  repeated modal.client.SecretSource secret_sources = 13;
 }
 
 message TaskExecStartResponse { }

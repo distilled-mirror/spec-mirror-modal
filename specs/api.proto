@@ -1615,6 +1615,8 @@ message EndpointCreateResponse {
   string endpoint_id = 1;
   string endpoint_page_url = 2;
   string name = 3;
+  // Model name to send in requests to the endpoint.
+  string model_name = 4;
 }
 
 message EndpointCustomModelSource {
@@ -1663,6 +1665,8 @@ message EndpointGetInfoResponse {
     // set only when the model is served from a modal volume
     string volume_id = 11;
     string model_path = 12;
+    // Model name to send in requests to the endpoint.
+    string model_name = 13;
   }
 
   message EndpointHandleMetadata {
@@ -3916,6 +3920,9 @@ message SandboxGetFromNameRequest {
   string sandbox_name = 1;
   string environment_name = 2;
   string app_name = 3;
+  // When set, the lookup also considers sandboxes that have already stopped and
+  // returns the most recently created sandbox with the given name.
+  bool include_terminated = 4;
 }
 
 message SandboxGetFromNameResponse {

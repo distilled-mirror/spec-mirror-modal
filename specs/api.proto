@@ -1922,6 +1922,8 @@ message EnvironmentRoleSetRequest {
   string service_user_id = 3;
   EnvironmentRole role = 4;
   string role_str = 5;  // String representation from the CLI; parsed when role is unspecified
+  string service_user_name = 6;
+  string environment_name = 7; // Sent by the client when an environment ID is unavailable
 }
 
 message EnvironmentSetBudgetRequest {
@@ -1962,6 +1964,31 @@ message EnvironmentUpdateRequest {
   optional int32 max_concurrent_tasks = 4;
   optional int32 max_concurrent_gpus = 5;
   optional EnvironmentBlockUnauthenticatedResources block_unauthenticated_resources = 6;
+}
+
+// Experimental policy for outbound traffic from a sandbox: header
+// replacements.
+message ExperimentalOutboundPolicy {
+  // Replace headers in outbound HTTPS requests, potentially with secret values.
+  repeated HeaderReplacement header_replacements = 1;
+
+  message HeaderReplacement {
+    // Domain that the header replacements are scoped to. Supports wildcards in
+    // subdomain positions.
+    string domain = 1;
+    // Reference to a secret usable in the header value templates. Can be
+    // empty if no secret value is used.
+    string secret_id = 4;
+    // Header name -> header value.
+    //
+    // Values support templating with keys in the stanza's secret_id: a
+    // $-prefixed key name in the secret will be replaced with the secret
+    // value. Literal $ characters can be represented by two dollars: `$$`.
+    map<string, string> headers = 5;
+
+    reserved 2, 3;
+    reserved "header_name", "header_value";
+  }
 }
 
 // A file entry when listing files in a volume or network file system.
@@ -2247,7 +2274,35 @@ message FunctionCallCancelRequest {
   optional string function_id = 3; // Only provided for sync input cancellation on the input plane. Async input cancellation does not provide this field this.
 }
 
+message FunctionCallCountRequest {
+  string function_id = 1;
+  google.protobuf.Timestamp since = 2;  // Inclusive, based on input enqueue time.
+  google.protobuf.Timestamp until = 3;  // Exclusive, based on input enqueue time.
+  uint32 bucket_secs = 4;
+  // Include the root Function and its eligible variants.
+  bool all_variants = 5;
+}
+
+message FunctionCallCountResponse {
+  message InputBucket {
+    google.protobuf.Timestamp bucket_start_at = 1;
+    // Number of unique inputs, matching FunctionCallFetch.
+    uint64 count = 2;
+  }
+
+  // Ordered by bucket start time, from oldest to newest.
+  // Counts include only inputs within the requested time range.
+  repeated InputBucket buckets = 1;
+}
+
 message FunctionCallFetchRequest {
+  message Range {
+    google.protobuf.Timestamp since = 1;  // Inclusive, based on input enqueue time.
+    google.protobuf.Timestamp until = 2;  // Exclusive, based on input enqueue time.
+    // Maximum number of inputs to return. Must be between 1 and 20000.
+    uint32 limit = 3;
+  }
+
   message Tail {
     // Number of most recent inputs to return. Must be between 1 and 1000.
     uint32 count = 1;
@@ -2256,13 +2311,15 @@ message FunctionCallFetchRequest {
   string function_id = 1;
   oneof query_oneof {
     Tail tail = 3;
+    Range range = 5;
   }
   // Include the root Function and its eligible variants.
   bool all_variants = 4;
 }
 
 message FunctionCallFetchResponse {
-  // The requested number of most recent inputs from the last seven days, ordered from newest to oldest.
+  // Tail queries return the most recent inputs from the last seven days, ordered from newest to oldest.
+  // Range queries return inputs ordered from oldest to newest.
   repeated FunctionCallInputInfo function_call_inputs = 1;
 }
 
@@ -2535,6 +2592,28 @@ message FunctionGetInputsResponse {
   float rate_limit_sleep_duration = 4; // How long to sleep before requesting another input.
 }
 
+message FunctionGetMetricsRequest {
+  string function_id = 1;
+  google.protobuf.Timestamp since = 2; // Required; rounded down to a UTC bucket boundary.
+  google.protobuf.Timestamp until = 3; // Required; rounded down; at most 31 days after since.
+  // If omitted, choose a supported width targeting approximately 100 buckets.
+  // Allowed widths are documented in MetricsGetInfoRequest.bucket_secs.
+  // At most 500 points per series in the rounded interval.
+  optional uint32 bucket_secs = 4;
+  // Metric groups: containers, calls.
+  // Empty selects all applicable groups. Each group returns its standard series.
+  repeated string groups = 5;
+  // Restrict the root Function's metrics to one of its parametrized Functions.
+  bool rollup = 6;
+}
+
+message FunctionGetMetricsResponse {
+  google.protobuf.Timestamp since = 1; // Inclusive effective bound, rounded down.
+  google.protobuf.Timestamp until = 2; // Exclusive effective bound, rounded down.
+  uint32 bucket_secs = 3;
+  repeated FunctionMetricSeries series = 4;
+}
+
 message FunctionGetOutputsItem {
   GenericResult result = 1;
   int32 idx = 2;
@@ -2729,6 +2808,22 @@ message FunctionMapResponse {
   string function_call_jwt = 4;
   bool sync_client_retries_enabled = 5;
   uint32 max_inputs_outstanding = 6;
+}
+
+message FunctionMetricPoint {
+  // UTC-aligned bucket start within the response's effective [since, until).
+  google.protobuf.Timestamp timestamp = 1;
+  optional double value = 2;
+}
+
+message FunctionMetricSeries {
+  // Unique within the response; identifies one aggregate series for this metric.
+  // The metric name defines the aggregation semantics.
+  string name = 1;
+  // Public semantic unit, such as seconds, calls, containers, or requests.
+  string unit = 2;
+  repeated FunctionMetricPoint points = 3; // Ascending timestamps; absent points are gaps.
+  string description = 4;
 }
 
 // todo(ayush): update this to also use `autoscaler_settings`
@@ -3249,6 +3344,46 @@ message MethodDefinition {
   repeated DataFormat supported_output_formats = 9;
 }
 
+message MetricDefinition {
+  string name = 1; // Exact series name returned by the metrics RPC.
+  string unit = 2; // Matches FunctionMetricSeries.unit.
+  string description = 3; // Meaning and aggregation semantics of the series.
+}
+
+message MetricGroupDefinition {
+  // Group selector, such as "calls". Multiple catalogue rows can share this name.
+  string name = 1;
+  string description = 2; // Shared description of this catalogue row's series.
+  // Individual series represented by this row, ordered by name; all have the same unit.
+  repeated MetricDefinition metrics = 3;
+  string display_name = 4; // Display label, such as "execution_time_{p50,p90,p99}".
+}
+
+message MetricsGetInfoRequest {
+  enum MetricsTargetType {
+    METRICS_TARGET_TYPE_UNSPECIFIED = 0;
+    METRICS_TARGET_TYPE_FUNCTION = 1;
+    METRICS_TARGET_TYPE_SERVER = 2;
+  }
+
+  // Required; unspecified and unrecognized targets are rejected.
+  MetricsTargetType target_type = 1;
+  google.protobuf.Timestamp since = 2; // Required; rounded down to a UTC bucket boundary.
+  google.protobuf.Timestamp until = 3; // Required; rounded down; at most 31 days after since.
+  // If omitted, choose a supported width targeting approximately 100 buckets.
+  optional uint32 bucket_secs = 4;
+  repeated string groups = 5;
+}
+
+message MetricsGetInfoResponse {
+  // Catalogue rows for the requested target type, ordered by name then display_name.
+  // Rows sharing a name belong under the same group heading. Each series appears once per group.
+  // Describes the catalog; individual exports may omit unavailable series.
+  repeated MetricGroupDefinition groups = 1;
+  uint32 bucket_secs = 4; // Resolved bucket width.
+  uint32 bucket_count = 5; // Projected buckets per series, not observed sample count.
+}
+
 message MountBatchedCheckExistenceRequest {
   repeated string sha256_hex_hashes = 1;
 }
@@ -3403,28 +3538,118 @@ message ObjectDependency {
   string object_id = 1;
 }
 
-// Policy for outbound traffic from a sandbox.
+// Route-based policy for outbound network traffic. A sandbox applies it to
+// its main container.
+//
+// Routes are evaluated in order and the first match decides what happens to
+// a connection or packet. The last route must be the policy's only
+// `any` route, which decides what happens to traffic no other route
+// matches. Traffic a route matches without a redirect goes to its original
+// destination.
 message OutboundPolicy {
-  // Replace headers in outbound HTTPS requests, potentially with secret values.
-  repeated HeaderReplacement header_replacements = 1;
+  enum Transport {
+    // The route type's default, described on each route's transport field.
+    TRANSPORT_UNSPECIFIED = 0;
+    TRANSPORT_ANY = 1;
+    TRANSPORT_TCP = 2;
+    TRANSPORT_UDP = 3;
+  }
+
+  // An inclusive range of ports. A single port has start == end.
+  message PortRange {
+    uint32 start = 1;
+    uint32 end = 2;
+  }
+
+  // Traffic to these CIDRs.
+  message IPRoute {
+    // Unspecified means any transport.
+    Transport transport = 1;
+    // Empty means every port.
+    repeated PortRange ports = 2;
+    repeated string cidrs = 3;
+
+    Redirect redirect = 20;
+  }
+
+  // Connections that carry TLS from the first byte to these domains. Never
+  // decrypted.
+  message TLSRoute {
+    // Unspecified means TCP.
+    Transport transport = 1;
+    // Empty means port 443.
+    repeated PortRange ports = 2;
+    // Supports `*.` wildcard prefixes and a bare `*`.
+    repeated string domains = 3;
+
+    Redirect redirect = 20;
+  }
+
+  // HTTPS connections to these domains. Always decrypted, which requires TLS
+  // decryption to be allowed.
+  message HTTPSRoute {
+    // Unspecified means TCP.
+    Transport transport = 1;
+    // Empty means port 443.
+    repeated PortRange ports = 2;
+    // Supports `*.` wildcard prefixes and a bare `*`.
+    repeated string domains = 3;
+
+    repeated HeaderReplacement header_replacements = 10;
+
+    Redirect redirect = 20;
+  }
+
+  // Everything earlier routes didn't match.
+  message AnyRoute {
+    Redirect redirect = 20;
+  }
 
   message HeaderReplacement {
-    // Domain that the header replacements are scoped to. Supports wildcards in
-    // subdomain positions.
-    string domain = 1;
-    // Reference to a secret usable in the header value templates. Can be
-    // empty if no secret value is used.
-    string secret_id = 4;
-    // Header name -> header value.
-    //
-    // Values support templating with keys in the stanza's secret_id: a
-    // $-prefixed key name in the secret will be replaced with the secret
-    // value. Literal $ characters can be represented by two dollars: `$$`.
-    map<string, string> headers = 5;
-
-    reserved 2, 3;
-    reserved "header_name", "header_value";
+    // Secret whose keys the header value templates may reference. Empty for
+    // static values.
+    string secret_id = 1;
+    // Header name -> value template. A $-prefixed key name in the secret is
+    // replaced with the secret value; `$$` is a literal `$`.
+    map<string, string> headers = 2;
   }
+
+  message Redirect {
+    message Block {}
+
+    message ViaProxy {
+      string proxy_id = 1;
+    }
+
+    message ViaSidecar {
+      string sidecar_name = 1;
+    }
+
+    oneof redirect {
+      Block block = 1;
+      ViaProxy via_proxy = 2;
+      ViaSidecar via_sidecar = 3;
+    }
+  }
+
+  message Route {
+    oneof route {
+      IPRoute ip = 1;
+      TLSRoute tls = 2;
+      HTTPSRoute https = 3;
+      AnyRoute any = 4;
+    }
+  }
+
+  message TLSDecryption {
+    // Generate a certificate authority for the sandbox and attempt to make the
+    // sandbox trust it, so that routes that need to can decrypt its TLS traffic.
+    // Decrypts nothing on its own. Required by HTTPS routes. Fixed at creation.
+    bool allowed = 1;
+  }
+
+  TLSDecryption tls_decryption = 1;
+  repeated Route routes = 2;
 }
 
 message PTYInfo {
@@ -3442,6 +3667,48 @@ message PTYInfo {
   PTYType pty_type = 7;
   bool no_terminate_on_idle_stdin = 8;
 }
+
+message PersistentSandboxCreateRequest {
+  string app_id = 1;
+  Sandbox definition = 2;
+}
+
+message PersistentSandboxCreateResponse {
+  string persistent_sandbox_id = 1;
+  string sandbox_id = 2;
+}
+
+message PersistentSandboxGetRequest {
+  oneof lookup {
+    string persistent_sandbox_id = 1;
+    PersistentSandboxNameLookup name = 2;
+  }
+}
+
+message PersistentSandboxGetResponse {
+  string persistent_sandbox_id = 1;
+  string sandbox_id = 2;
+}
+
+message PersistentSandboxNameLookup {
+  string app_name = 1;
+  string environment_name = 2;
+  string name = 3;
+}
+
+message PersistentSandboxResumeRequest {
+  string persistent_sandbox_id = 1;
+}
+
+message PersistentSandboxResumeResponse {
+  string sandbox_id = 1;
+}
+
+message PersistentSandboxTerminateRequest {
+  string persistent_sandbox_id = 1;
+}
+
+message PersistentSandboxTerminateResponse {}
 
 message PortSpec {
   uint32 port = 1;
@@ -3824,13 +4091,18 @@ message Sandbox {
 
   StringMap environment_variables = 40;
 
-  optional OutboundPolicy outbound_policy = 42;
+  optional ExperimentalOutboundPolicy experimental_outbound_policy = 42;
 
   // If set, the sandbox's main container is served an X.509-SVID over a
   // SPIFFE Workload API socket, addressed by SPIFFE_ENDPOINT_SOCKET. The
   // certificate federates into a cloud account (AWS IAM Roles Anywhere).
   // Sidecars are not served one.
   bool include_x509_svid = 43;
+
+  // Route-based outbound policy. Mutually exclusive with
+  // experimental_outbound_policy (superseded, experimental API) and with any
+  // network_access other than OPEN.
+  optional OutboundPolicy outbound_policy = 44;
 }
 
 message SandboxContainerCreateV2Request {
@@ -4304,6 +4576,43 @@ message SecretUpdateRequest {
   repeated Update updates = 2;
 }
 
+message ServerCountRequestsRequest {
+  string function_id = 1;
+  google.protobuf.Timestamp since = 2;  // Inclusive, based on request timestamp.
+  google.protobuf.Timestamp until = 3;  // Exclusive, based on request timestamp.
+  uint32 bucket_secs = 4;
+}
+
+message ServerCountRequestsResponse {
+  message RequestBucket {
+    google.protobuf.Timestamp bucket_start_at = 1;
+    // Number of request records, matching ServerRequestFetch.
+    uint64 count = 2;
+  }
+
+  // Ordered by bucket start time, from oldest to newest.
+  // Counts include only requests within the requested time range.
+  repeated RequestBucket buckets = 1;
+}
+
+message ServerGetMetricsRequest {
+  string function_id = 1;
+  google.protobuf.Timestamp since = 2; // Required; rounded down to a UTC bucket boundary.
+  google.protobuf.Timestamp until = 3; // Required; rounded down; at most 31 days after since.
+  // If omitted, choose a supported width targeting approximately 100 buckets.
+  // At most 500 points per series in the rounded interval.
+  optional uint32 bucket_secs = 4;
+  // Metric groups: containers, requests, etc.
+  repeated string groups = 5;
+}
+
+message ServerGetMetricsResponse {
+  google.protobuf.Timestamp since = 1; // Inclusive effective bound, rounded down.
+  google.protobuf.Timestamp until = 2; // Exclusive effective bound, rounded down.
+  uint32 bucket_secs = 3;
+  repeated FunctionMetricSeries series = 4;
+}
+
 message ServerGetTimeRangeStatsRequest {
   string function_id = 1;
   google.protobuf.Timestamp since = 2;  // Inclusive.
@@ -4360,6 +4669,13 @@ message ServerGetTimeRangeStatsResponse {
 }
 
 message ServerRequestFetchRequest {
+  message Range {
+    google.protobuf.Timestamp since = 1;  // Inclusive, based on request timestamp.
+    google.protobuf.Timestamp until = 2;  // Exclusive, based on request timestamp.
+    // Maximum number of requests to return. Must be between 1 and 20000.
+    uint32 limit = 3;
+  }
+
   message Tail {
     // Number of most recent requests to return. Must be between 1 and 1000.
     uint32 count = 1;
@@ -4368,11 +4684,13 @@ message ServerRequestFetchRequest {
   string function_id = 1;
   oneof query_oneof {
     Tail tail = 3;
+    Range range = 4;
   }
 }
 
 message ServerRequestFetchResponse {
-  // The requested number of most recent requests from the last seven days, ordered from newest to oldest.
+  // Tail queries return the most recent requests from the last seven days, ordered from newest to oldest.
+  // Range queries return requests ordered from oldest to newest.
   repeated ServerRequestInfo requests = 1;
 }
 
@@ -4385,6 +4703,12 @@ message ServerRequestInfo {
 }
 
 message ServiceUser {
+  message EnvironmentRoleEntry {
+    string environment_id = 1;
+    EnvironmentRole role = 2;
+    string environment_name = 3;
+  }
+
   string name = 1;
   string token_id = 2;
   string created_by = 3;
@@ -4392,6 +4716,30 @@ message ServiceUser {
   double last_used_at = 5;
   string created_by_avatar_url = 6;
   string service_user_id = 7;
+  string status = 8;
+  bool scoped = 9;
+  repeated EnvironmentRoleEntry environment_roles = 10;
+
+  // This should be a TImestamp type, but keeping as a double for compatibility with public_api.proto
+  optional double expires_at = 11;
+}
+
+message ServiceUserCreateRequest {
+  string name = 1;
+  bool scoped = 2;
+  uint32 expires_in_seconds = 3;
+}
+
+message ServiceUserCreateResponse {
+  string token_id = 1;
+  string token_secret = 2;
+  string service_user_id = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message ServiceUserDeleteRequest {
+  string service_user_id = 1;
+  string service_user_name = 2;
 }
 
 message ServiceUserIdentity {
@@ -4400,9 +4748,18 @@ message ServiceUserIdentity {
   UserIdentity created_by = 3;
 }
 
+message ServiceUserInfoRequest {
+  string service_user_name = 1;
+}
+
+message ServiceUserInfoResponse {
+  ServiceUser service_user = 1;
+}
+
 message ServiceUserListResponse {
   repeated ServiceUser service_users = 1;
 }
+
 
 // SharedVolume in the backend corresponds to NetworkFileSystem in the current API
 
@@ -5311,6 +5668,7 @@ service ModalClient {
   rpc FunctionAsyncInvoke(FunctionAsyncInvokeRequest) returns (FunctionAsyncInvokeResponse);
   rpc FunctionBindParams(FunctionBindParamsRequest) returns (FunctionBindParamsResponse);
   rpc FunctionCallCancel(FunctionCallCancelRequest) returns (google.protobuf.Empty);
+  rpc FunctionCallCount(FunctionCallCountRequest) returns (FunctionCallCountResponse);
   rpc FunctionCallFetch(FunctionCallFetchRequest) returns (FunctionCallFetchResponse);
   rpc FunctionCallFromId(FunctionCallFromIdRequest) returns (FunctionCallFromIdResponse);
   rpc FunctionCallGetDataIn(FunctionCallGetDataRequest) returns (stream DataChunk);
@@ -5327,6 +5685,7 @@ service ModalClient {
   rpc FunctionGetDynamicConcurrency(FunctionGetDynamicConcurrencyRequest) returns (FunctionGetDynamicConcurrencyResponse);
   rpc FunctionGetFlashAuthToken(FunctionGetFlashAuthTokenRequest) returns (FunctionGetFlashAuthTokenResponse);
   rpc FunctionGetInputs(FunctionGetInputsRequest) returns (FunctionGetInputsResponse);  // For containers to request next call
+  rpc FunctionGetMetrics(FunctionGetMetricsRequest) returns (FunctionGetMetricsResponse);
   rpc FunctionGetOutputs(FunctionGetOutputsRequest) returns (FunctionGetOutputsResponse);  // Returns the next result(s) for an entire function call (FunctionMap)
   rpc FunctionGetSchedulingParams(FunctionGetSchedulingParamsRequest) returns (FunctionGetSchedulingParamsResponse);
   rpc FunctionGetSerialized(FunctionGetSerializedRequest) returns (FunctionGetSerializedResponse);
@@ -5356,6 +5715,9 @@ service ModalClient {
   rpc MapCheckInputs(MapCheckInputsRequest) returns (MapCheckInputsResponse);
   rpc MapStartOrContinue(MapStartOrContinueRequest) returns (MapStartOrContinueResponse);
 
+  // Metrics discovery
+  rpc MetricsGetInfo(MetricsGetInfoRequest) returns (MetricsGetInfoResponse);
+
   // Mounts
   rpc MountBatchedCheckExistence(MountBatchedCheckExistenceRequest) returns (MountBatchedCheckExistenceResponse);
   rpc MountGetOrCreate(MountGetOrCreateRequest) returns (MountGetOrCreateResponse);
@@ -5363,6 +5725,12 @@ service ModalClient {
 
   // Notebooks
   rpc NotebookKernelPublishResults(NotebookKernelPublishResultsRequest) returns (google.protobuf.Empty);
+
+  // Persistent sandboxes
+  rpc PersistentSandboxCreate(PersistentSandboxCreateRequest) returns (PersistentSandboxCreateResponse);
+  rpc PersistentSandboxGet(PersistentSandboxGetRequest) returns (PersistentSandboxGetResponse);
+  rpc PersistentSandboxResume(PersistentSandboxResumeRequest) returns (PersistentSandboxResumeResponse);
+  rpc PersistentSandboxTerminate(PersistentSandboxTerminateRequest) returns (PersistentSandboxTerminateResponse);
 
   // Proxies
   rpc ProxyAddIp(ProxyAddIpRequest) returns (ProxyAddIpResponse);
@@ -5432,10 +5800,15 @@ service ModalClient {
   rpc SecretUpdate(SecretUpdateRequest) returns (google.protobuf.Empty);
 
   // Servers
+  rpc ServerCountRequests(ServerCountRequestsRequest) returns (ServerCountRequestsResponse);
+  rpc ServerGetMetrics(ServerGetMetricsRequest) returns (ServerGetMetricsResponse);
   rpc ServerGetTimeRangeStats(ServerGetTimeRangeStatsRequest) returns (ServerGetTimeRangeStatsResponse);
   rpc ServerRequestFetch(ServerRequestFetchRequest) returns (ServerRequestFetchResponse);
 
   // Service users
+  rpc ServiceUserCreate(ServiceUserCreateRequest) returns (ServiceUserCreateResponse);
+  rpc ServiceUserDelete(ServiceUserDeleteRequest) returns (google.protobuf.Empty);
+  rpc ServiceUserInfo(ServiceUserInfoRequest) returns (ServiceUserInfoResponse);
   rpc ServiceUserList(google.protobuf.Empty) returns (ServiceUserListResponse);
 
   // SharedVolumes

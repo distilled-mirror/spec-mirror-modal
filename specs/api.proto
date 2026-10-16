@@ -3142,6 +3142,8 @@ message ImageListTagsRequest {
   // Defaults to 100. Values above 100 are rejected by the server.
   uint32 max_objects = 3;
   string page_token = 4;
+  // Returns only the tags that currently point at this image. Optional.
+  string image_id = 5;
 }
 
 message ImageListTagsResponse {
@@ -3170,6 +3172,11 @@ message ImageMetadata {
 
   // The builder version for/with which the image was created.
   optional string image_builder_version = 5;
+}
+
+message ImageNameDeleteRequest {
+  // Named image reference: "[environment/]name[:tag]".
+  string tag = 1;
 }
 
 
@@ -5679,6 +5686,7 @@ service ModalClient {
   rpc ImageGetOrCreate(ImageGetOrCreateRequest) returns (ImageGetOrCreateResponse);
   rpc ImageJoinStreaming(ImageJoinStreamingRequest) returns (stream ImageJoinStreamingResponse);
   rpc ImageListTags(ImageListTagsRequest) returns (ImageListTagsResponse);
+  rpc ImageNameDelete(ImageNameDeleteRequest) returns (google.protobuf.Empty);
   rpc ImagePublish(ImagePublishRequest) returns (ImagePublishResponse);
   rpc ImageTagRevisions(ImageTagRevisionsRequest) returns (ImageTagRevisionsResponse);
 

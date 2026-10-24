@@ -65,7 +65,7 @@ enum AppState {
 enum AppStopSource {
   APP_STOP_SOURCE_UNSPECIFIED = 0;
   APP_STOP_SOURCE_CLI = 1;
-  APP_STOP_SOURCE_PYTHON_CLIENT = 2;
+  APP_STOP_SOURCE_PYTHON_CLIENT = 2;  // Now also used by JS and Go SDKs
   APP_STOP_SOURCE_WEB = 3;
 }
 
@@ -247,6 +247,7 @@ enum FunctionCallInputStatus {
   FUNCTION_CALL_INPUT_STATUS_IDLE_TIMEOUT = 9;
   FUNCTION_CALL_INPUT_STATUS_MEMORY_MANAGER_EVICTION = 10;
   FUNCTION_CALL_INPUT_STATUS_MEMORY_THRASHING_EVICTION = 11;
+  FUNCTION_CALL_INPUT_STATUS_KERNEL_OOM_KILL = 12;
 }
 
 enum FunctionCallInvocationType {
@@ -3081,6 +3082,8 @@ message GenericResult {  // Used for both tasks and function outputs
     GENERIC_STATUS_MEMORY_MANAGER_EVICTION = 8;
     // Used when a task was killed by the memory manager after thrashing at its own memory limit.
     GENERIC_STATUS_MEMORY_THRASHING_EVICTION = 9;
+    // Used when the kernel OOM-killed a process in the task's container after it hit its own memory limit.
+    GENERIC_STATUS_KERNEL_OOM_KILL = 10;
   }
 
   GenericStatus status = 1; // Status of the task or function output.
@@ -4436,6 +4439,14 @@ message SandboxSetNameRequest {
 
 message SandboxSetNameResponse {}
 
+message SandboxSetOutboundPolicyRequest {
+  string sandbox_id = 1;
+  // Replaces the Sandbox's route-based outbound policy.
+  OutboundPolicy outbound_policy = 2;
+}
+
+message SandboxSetOutboundPolicyResponse {}
+
 message SandboxSnapshotFsAsyncGetRequest {
   string image_id = 1;
   float timeout = 2;
@@ -5142,6 +5153,24 @@ message TokenInfoGetResponse {
   google.protobuf.Timestamp expires_at = 7;
 
   string token_name = 8;
+}
+
+message TokensListResponse {
+  message Token {
+    string token_id = 1;
+    double created_at = 2;
+    string workspace_id = 3;
+    string user_id = 4;
+    double last_used_at = 5;
+    string member_displayname = 6;
+    string member_id = 7;
+    IdentityProviderType identity_provider_type = 8;
+    string member_avatar_url = 9;
+    string name = 10;
+    optional double expires_at = 11;
+  }
+
+  repeated Token tokens = 1;
 }
 
 message TunnelData {
@@ -5869,6 +5898,8 @@ service ModalClient {
   rpc SandboxRestore(SandboxRestoreRequest) returns (SandboxRestoreResponse);
   rpc SandboxRestoreV2(SandboxRestoreV2Request) returns (SandboxRestoreV2Response);
   rpc SandboxSetName(SandboxSetNameRequest) returns (SandboxSetNameResponse);
+  rpc SandboxSetOutboundPolicy(SandboxSetOutboundPolicyRequest) returns (SandboxSetOutboundPolicyResponse);
+  rpc SandboxSetOutboundPolicyV2(SandboxSetOutboundPolicyRequest) returns (SandboxSetOutboundPolicyResponse);
   rpc SandboxSnapshot(SandboxSnapshotRequest) returns (SandboxSnapshotResponse);
   rpc SandboxSnapshotFs(SandboxSnapshotFsRequest) returns (SandboxSnapshotFsResponse);
   rpc SandboxSnapshotFsAsync(SandboxSnapshotFsAsyncRequest) returns (SandboxSnapshotFsAsyncResponse);
@@ -5928,9 +5959,11 @@ service ModalClient {
   rpc TemplateList(TemplateListRequest) returns (TemplateListResponse);
 
   // Tokens (web auth flow)
+  rpc TokenDelete(TokenDeleteRequest) returns (google.protobuf.Empty);
   rpc TokenFlowCreate(TokenFlowCreateRequest) returns (TokenFlowCreateResponse);
   rpc TokenFlowWait(TokenFlowWaitRequest) returns (TokenFlowWaitResponse);
   rpc TokenInfoGet(TokenInfoGetRequest) returns (TokenInfoGetResponse);
+  rpc TokensList(google.protobuf.Empty) returns (TokensListResponse);
 
   // Tunnels
   rpc TunnelStart(TunnelStartRequest) returns (TunnelStartResponse);

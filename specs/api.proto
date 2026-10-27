@@ -962,6 +962,22 @@ message AuditLogPlanResponse {
   repeated AuditLogCursor cursors = 1;
 }
 
+message AuditLogSettingsGetRequest {
+}
+
+message AuditLogSettingsGetResponse {
+  uint32 bucket_size = 1;
+  uint32 page_size = 2;
+  uint32 max_concurrent_requests = 3;
+  uint32 max_buffered_buckets = 4;
+  uint32 max_attempts = 5;
+  float retry_delay_secs = 6;
+  float retry_backoff_factor = 7;
+  float request_timeout_secs = 8;
+  float plan_timeout_secs = 9;
+  uint32 plan_max_attempts = 10;
+}
+
 message AuditLogTarget {
   string type = 1;  // For example "app", "function" or "secret"
   string id = 2;
@@ -4322,6 +4338,20 @@ message SandboxGetTaskIdResponse {
   optional GenericResult task_result = 2; // If the task has already exited, this is the result.
 }
 
+message SandboxGetTimeRangeStatsRequest {
+  google.protobuf.Timestamp created_after = 1;
+  google.protobuf.Timestamp created_before = 2;
+  repeated string group_by_tags = 3;
+  map<string, string> tags = 4;
+  string app_id = 5;
+  string page_token = 6;
+}
+
+message SandboxGetTimeRangeStatsResponse {
+  repeated SandboxStatsGroup groups = 1;
+  string next_page_token = 2;
+}
+
 message SandboxGetTunnelsRequest {
   string sandbox_id = 1;
   float timeout = 2;
@@ -4471,6 +4501,14 @@ message SandboxSnapshotWaitRequest {
 
 message SandboxSnapshotWaitResponse {
   GenericResult result = 1;
+}
+
+message SandboxStatsGroup {
+  map<string, string> tags = 1;
+  uint64 count = 2;
+  StatsSummary duration = 3;
+  StatsSummary cost = 4;
+  map<string, StatsSummary> cost_by_resource = 5;
 }
 
 message SandboxStdinWriteRequest {
@@ -4930,6 +4968,14 @@ message StatsPercentileDistribution {
   // Unit identifier such as "seconds", "cores", "gibibytes", or "fraction".
   string unit = 1;
   repeated StatsPercentile percentiles = 2;
+}
+
+message StatsSummary {
+  string unit = 1;
+  uint64 count = 2;
+  double sum = 3;
+  double mean = 4;
+  repeated StatsPercentile percentiles = 5;
 }
 
 message StringMap {
@@ -5608,6 +5654,14 @@ message WorkspaceNameLookupResponse {
   string username = 2;
 }
 
+message WorkspaceRoleDefinition {
+  string workspace_role_definition_id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string permissions = 4;
+  double created_at = 5;
+}
+
 message WorkspaceSetDefaultEnvironmentRequest {
   string environment_name = 1;
 }
@@ -5672,6 +5726,7 @@ service ModalClient {
   rpc AuditLogCount(AuditLogCountRequest) returns (AuditLogCountResponse);
   rpc AuditLogList(AuditLogListRequest) returns (AuditLogListResponse);
   rpc AuditLogPlan(AuditLogBucketsRequest) returns (AuditLogPlanResponse);
+  rpc AuditLogSettingsGet(AuditLogSettingsGetRequest) returns (AuditLogSettingsGetResponse);
 
   // Auth Token
   rpc AuthTokenGet(AuthTokenGetRequest) returns (AuthTokenGetResponse);
@@ -5859,6 +5914,7 @@ service ModalClient {
   rpc SandboxGetResourceUsage(SandboxGetResourceUsageRequest) returns (SandboxGetResourceUsageResponse);
   rpc SandboxGetTaskId(SandboxGetTaskIdRequest) returns (SandboxGetTaskIdResponse); // needed for modal container exec
   rpc SandboxGetTaskIdV2(SandboxGetTaskIdRequest) returns (SandboxGetTaskIdResponse);
+  rpc SandboxGetTimeRangeStats(SandboxGetTimeRangeStatsRequest) returns (SandboxGetTimeRangeStatsResponse);
   rpc SandboxGetTunnels(SandboxGetTunnelsRequest) returns (SandboxGetTunnelsResponse);
   rpc SandboxGetTunnelsV2(SandboxGetTunnelsRequest) returns (SandboxGetTunnelsResponse);
   rpc SandboxList(SandboxListRequest) returns (SandboxListResponse);

@@ -1843,6 +1843,9 @@ message EndpointCreateRequest {
   bool shared_endpoint_notice_acknowledged = 11;
   // Requires Modal admin access. Dedicated endpoints only; must match model.
   optional string recipe_id = 12;
+  // Dedicated endpoints only. Fields that are set override the model's default autoscaling
+  // configuration. Target concurrency and scaledown rate limits are not supported.
+  optional AutoscalerSettings autoscaler_settings = 13;
 }
 
 message EndpointCreateResponse {
@@ -3974,6 +3977,14 @@ message PersistentSandboxTerminateRequest {
 
 message PersistentSandboxTerminateResponse {}
 
+message PersistentSandboxTunnelsListRequest {
+  string persistent_sandbox_id = 1;
+}
+
+message PersistentSandboxTunnelsListResponse {
+  repeated TunnelData tunnels = 1;
+}
+
 message PortSpec {
   uint32 port = 1;
   bool unencrypted = 2;
@@ -4518,6 +4529,10 @@ message SandboxGetResourceUsageResponse {
 
 message SandboxGetStatsRequest {
   string sandbox_id = 1;
+  // Time range of the samples to include. Unset `since` means the sandbox's
+  // creation and unset `until` means now.
+  google.protobuf.Timestamp since = 2;  // Inclusive.
+  google.protobuf.Timestamp until = 3;  // Exclusive.
 }
 
 message SandboxGetStatsResponse {
@@ -4534,13 +4549,23 @@ message SandboxGetStatsResponse {
   }
 
   uint64 num_datapoints = 3;
-  ResourceStats cpu_cores = 4;
-  ResourceStats memory_gib = 5;
+  // Superseded by `percentile_stats`; still populated for clients that read these fields.
+  ResourceStats cpu_cores = 4 [deprecated = true];
+  ResourceStats memory_gib = 5 [deprecated = true];
   double duration_hours = 6;
   // Billing-adjusted usage: the greater of measured and reserved resources per
   // sample, less any resources bundled with a GPU.
   double billed_cpu_core_seconds = 7;
   double billed_memory_gib_seconds = 8;
+  // The time range covered, with the request's defaults applied. Every sample
+  // counted lies within it: with `since` unset, it starts before the sandbox's
+  // creation if clock skew stamped a sample earlier.
+  google.protobuf.Timestamp since = 9;
+  google.protobuf.Timestamp until = 10;
+  // Measured usage keyed like FunctionGetTimeRangeStatsResponse.container_percentile_stats:
+  // "CPU Usage (cores)" and "Memory Usage (GiB)". Each has exact, equally weighted sample
+  // percentiles p50, p90, and p99. Empty when no usage is available.
+  map<string, StatsPercentileDistribution> percentile_stats = 11;
 }
 
 message SandboxGetTaskIdRequest {
@@ -4724,8 +4749,10 @@ message SandboxStatsGroup {
     optional string value = 1;
   }
   map<string, TagValue> tags = 1;
-  double cost = 2;
-  map<string, double> cost_by_resource = 3;
+  double cost = 2 [deprecated = true];
+  map<string, double> cost_by_resource = 3 [deprecated = true];
+  string cost_str = 4;  // Supersedes cost
+  map<string, string> cost_by_resource_str = 5;  // Supersedes cost_by_resource
 }
 
 message SandboxStdinWriteRequest {
@@ -6108,6 +6135,7 @@ service ModalClient {
   rpc PersistentSandboxGet(PersistentSandboxGetRequest) returns (PersistentSandboxGetResponse);
   rpc PersistentSandboxResume(PersistentSandboxResumeRequest) returns (PersistentSandboxResumeResponse);
   rpc PersistentSandboxTerminate(PersistentSandboxTerminateRequest) returns (PersistentSandboxTerminateResponse);
+  rpc PersistentSandboxTunnelsList(PersistentSandboxTunnelsListRequest) returns (PersistentSandboxTunnelsListResponse);
 
   // Proxies
   rpc ProxyAddIp(ProxyAddIpRequest) returns (ProxyAddIpResponse);

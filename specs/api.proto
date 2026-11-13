@@ -2140,6 +2140,9 @@ message EnvironmentListItem {
   optional bool block_unauthenticated_resources = 17;
   optional EnvironmentRole effective_role = 18;
   optional string image_builder_version = 19;
+  optional bool can_manage = 20;
+  optional string created_by = 21;
+  optional string created_by_avatar_url = 22;
 }
 
 message EnvironmentListResponse {

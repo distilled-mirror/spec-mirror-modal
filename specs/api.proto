@@ -2415,7 +2415,7 @@ message Function {
   bool _experimental_concurrent_cancellations = 63;
   uint32 target_concurrent_inputs = 64;
 
-  // TODO(irfansharif): Remove, once https://github.com/modal-labs/modal/pull/15645 lands.
+  // TODO(colin, was irfansharif): Remove, once https://github.com/modal-labs/modal/pull/15645 lands.
   bool _experimental_task_templates_enabled = 65;  // forces going through the new gpu-fallbacks integration path, even if no fallback options are specified
   repeated TaskTemplate _experimental_task_templates = 66;  // for fallback options, where the first/most-preferred "template" is derived from fields above
 
@@ -2485,6 +2485,12 @@ message Function {
 
   // Outbound network access of the Function's containers. Takes precedence over block_network.
   optional NetworkAccess network_access = 96;
+
+  optional LocalizedConfig localized_config = 97;
+
+  // Whether the Function's containers may pickle or unpickle data, e.g. for modal.Dict and
+  // modal.Queue values or when calling other Functions. Unset means pickle is allowed.
+  optional bool allow_pickle = 98;
 }
 
 message FunctionAsyncInvokeRequest {
@@ -2751,6 +2757,8 @@ message FunctionData {
 
   // True when the function is a Sessioned Server. Only valid together with is_server.
   bool is_sessioned = 44;
+
+  optional LocalizedConfig localized_config = 45;
 }
 
 message FunctionExtended {
@@ -3549,6 +3557,12 @@ message ListPagination {
   double created_before = 2;
 }
 
+message LocalizedConfig {
+  optional string target_location = 1;
+  optional string preferred_distance = 2;
+  optional string max_distance = 3;
+}
+
 message MapAwaitRequest {
   oneof call_info {
     string function_call_id = 1;
@@ -4066,8 +4080,9 @@ message ProxyGetResponse {
 message ProxyInfo {
   string elastic_ip = 1;
   string proxy_key = 2;
-  bool use_oidc = 6;
+  reserved 6; // removed use_oidc
   string vprox_node_id = 7;
+  string oidc_token = 8;
 }
 
 message ProxyIp {
@@ -5405,7 +5420,7 @@ message TaskTemplate {
   uint32 target_concurrent_inputs = 3;
   uint32 max_concurrent_inputs = 4;
 
-  // TODO(irfansharif): Just move this into a column in the task table instead?
+  // TODO(colin, was irfansharif): Just move this into a column in the task table instead?
   // Deprecate all above fields and get rid of this message altogether
   uint32 index = 5;  // pointer into FunctionData, if using that as the underlying definition type
 }

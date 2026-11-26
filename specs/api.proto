@@ -4733,6 +4733,10 @@ message SandboxSetOutboundPolicyRequest {
 
 message SandboxSetOutboundPolicyResponse {}
 
+message SandboxSnapshotDeleteRequest {
+  string snapshot_id = 1;
+}
+
 message SandboxSnapshotFsAsyncGetRequest {
   string image_id = 1;
   float timeout = 2;
@@ -5160,8 +5164,16 @@ message ServiceUser {
     EnvironmentRoleDefinition environment_role_definition = 6;
   }
 
+  message TokenMetadata {
+    string token_id = 1;
+    optional google.protobuf.Timestamp expires_at = 2;
+  }
+
   string name = 1;
-  string token_id = 2;
+  
+  // Deprecated: use tokens instead
+  string token_id = 2; 
+  
   string created_by = 3;
   double created_at = 4;
   double last_used_at = 5;
@@ -5173,6 +5185,11 @@ message ServiceUser {
 
   // This should be a TImestamp type, but keeping as a double for compatibility with public_api.proto
   optional double expires_at = 11;
+
+  bool tokenless = 12;
+  string bound_service = 13;
+
+  repeated TokenMetadata tokens = 14;
 }
 
 message ServiceUserCreateRequest {
@@ -5213,8 +5230,25 @@ message ServiceUserListResponse {
   repeated ServiceUser service_users = 1;
 }
 
+message ServiceUserRotateRequest {
+  repeated string service_user_names = 1;
+  uint32 grace_period_seconds = 2;
+  bool allow_missing = 3;
+  uint32 expires_in_seconds = 4;
+}
 
-// SharedVolume in the backend corresponds to NetworkFileSystem in the current API
+message ServiceUserRotateResponse {
+  message RotationInfo {
+    string service_user_name = 1;
+    string token_id = 2;
+    string token_secret = 3;
+    google.protobuf.Timestamp expires_at = 4;
+  }
+
+  repeated RotationInfo rotated = 1;
+}
+
+// SharedVolume is the API name of NetworkFileSystem, retired in Python SDK v1.7.
 
 message SharedVolumeDeleteRequest {
   string shared_volume_id = 1;
@@ -6290,6 +6324,7 @@ service ModalClient {
   rpc SandboxSetOutboundPolicy(SandboxSetOutboundPolicyRequest) returns (SandboxSetOutboundPolicyResponse);
   rpc SandboxSetOutboundPolicyV2(SandboxSetOutboundPolicyRequest) returns (SandboxSetOutboundPolicyResponse);
   rpc SandboxSnapshot(SandboxSnapshotRequest) returns (SandboxSnapshotResponse);
+  rpc SandboxSnapshotDelete(SandboxSnapshotDeleteRequest) returns (google.protobuf.Empty);
   rpc SandboxSnapshotFs(SandboxSnapshotFsRequest) returns (SandboxSnapshotFsResponse);
   rpc SandboxSnapshotFsAsync(SandboxSnapshotFsAsyncRequest) returns (SandboxSnapshotFsAsyncResponse);
   rpc SandboxSnapshotFsAsyncGet(SandboxSnapshotFsAsyncGetRequest) returns (SandboxSnapshotFsResponse);
@@ -6324,6 +6359,7 @@ service ModalClient {
   rpc ServiceUserDelete(ServiceUserDeleteRequest) returns (google.protobuf.Empty);
   rpc ServiceUserInfo(ServiceUserInfoRequest) returns (ServiceUserInfoResponse);
   rpc ServiceUserList(google.protobuf.Empty) returns (ServiceUserListResponse);
+  rpc ServiceUserRotate(ServiceUserRotateRequest) returns (ServiceUserRotateResponse);
 
   // SharedVolumes
   rpc SharedVolumeDelete(SharedVolumeDeleteRequest) returns (google.protobuf.Empty);

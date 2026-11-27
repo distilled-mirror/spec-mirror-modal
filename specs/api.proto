@@ -308,6 +308,17 @@ enum ObjectCreationType {
   OBJECT_CREATION_TYPE_EPHEMERAL = 5;
 }
 
+// Layout of the `sub` claim in a sandbox's OIDC identity tokens. Customer
+// trust policies match on the layout, so each value's layout is fixed once
+// released. See server/modal_server/oidc/README.md.
+enum OidcSubjectVersion {
+  // Keyed on the sandbox and container ids.
+  OIDC_SUBJECT_VERSION_LEGACY = 0;
+  // Keyed on the sandbox's create-time name and the container name, and ends
+  // with the container id. 1 is unused so that the value matches the name.
+  OIDC_SUBJECT_VERSION_V2 = 2;
+}
+
 // OS that an image is built for and runs on.
 enum Os {
   OS_UNSPECIFIED = 0;
@@ -4413,6 +4424,12 @@ message Sandbox {
   // experimental_outbound_policy (superseded, experimental API) and with any
   // network_access other than OPEN.
   optional OutboundPolicy outbound_policy = 44;
+
+  // Layout of the `sub` claim in the sandbox's OIDC identity tokens. Values
+  // other than those of OidcSubjectVersion are rejected. Sidecars added to a
+  // sandbox use the value from the sandbox's create request, and the value on
+  // a sidecar's own definition is ignored.
+  OidcSubjectVersion oidc_subject_version = 45;
 }
 
 message SandboxContainerCreateV2Request {
@@ -5349,6 +5366,67 @@ message StatsPercentileDistribution {
 
 message StringMap {
   map<string, string> contents = 1;
+}
+
+message SxSandboxCreateRequest {
+  string app_id = 1;
+  Sandbox definition = 2;
+}
+
+message SxSandboxCreateResponse {
+  string sx_id = 1;
+  // The Sandbox running the first session.
+  string sandbox_id = 2;
+}
+
+message SxSandboxGetRequest {
+  oneof lookup {
+    string sx_id = 1;
+    SxSandboxNameLookup name = 2;
+  }
+}
+
+message SxSandboxGetResponse {
+  string sx_id = 1;
+  // The Sandbox running the current session. Empty while no session runs.
+  string sandbox_id = 2;
+  // Set once the SX Sandbox is terminated; unset otherwise.
+  google.protobuf.Timestamp terminated_at = 3;
+}
+
+message SxSandboxNameLookup {
+  string app_name = 1;
+  string environment_name = 2;
+  string name = 3;
+}
+
+message SxSandboxPauseRequest {
+  string sx_id = 1;
+}
+
+message SxSandboxPauseResponse {}
+
+message SxSandboxResumeRequest {
+  string sx_id = 1;
+}
+
+message SxSandboxResumeResponse {
+  // The Sandbox running the new session.
+  string sandbox_id = 1;
+}
+
+message SxSandboxTerminateRequest {
+  string sx_id = 1;
+}
+
+message SxSandboxTerminateResponse {}
+
+message SxSandboxTunnelsListRequest {
+  string sx_id = 1;
+}
+
+message SxSandboxTunnelsListResponse {
+  repeated TunnelData tunnels = 1;
 }
 
 message TaskClusterHelloRequest {
@@ -6371,6 +6449,14 @@ service ModalClient {
   rpc SharedVolumeListFilesStream(SharedVolumeListFilesRequest) returns (stream SharedVolumeListFilesResponse);
   rpc SharedVolumePutFile(SharedVolumePutFileRequest) returns (SharedVolumePutFileResponse);
   rpc SharedVolumeRemoveFile(SharedVolumeRemoveFileRequest) returns (google.protobuf.Empty);
+
+  // SX Sandboxes
+  rpc SxSandboxCreate(SxSandboxCreateRequest) returns (SxSandboxCreateResponse);
+  rpc SxSandboxGet(SxSandboxGetRequest) returns (SxSandboxGetResponse);
+  rpc SxSandboxPause(SxSandboxPauseRequest) returns (SxSandboxPauseResponse);
+  rpc SxSandboxResume(SxSandboxResumeRequest) returns (SxSandboxResumeResponse);
+  rpc SxSandboxTerminate(SxSandboxTerminateRequest) returns (SxSandboxTerminateResponse);
+  rpc SxSandboxTunnelsList(SxSandboxTunnelsListRequest) returns (SxSandboxTunnelsListResponse);
 
   // Tasks
   rpc TaskClusterHello(TaskClusterHelloRequest) returns (TaskClusterHelloResponse);

@@ -3989,6 +3989,20 @@ message PTYInfo {
   bool no_terminate_on_idle_stdin = 8;
 }
 
+message PersistentSandboxCreateConnectTokenRequest {
+  string persistent_sandbox_id = 1;
+  string user_metadata = 2;
+  // Uses port 8080 if unspecified.
+  optional uint32 port = 3;
+}
+
+message PersistentSandboxCreateConnectTokenResponse {
+  // Stays the same across the persistent sandbox's sessions for a given port
+  // and user metadata.
+  string url = 1;
+  string token = 2;
+}
+
 message PersistentSandboxCreateRequest {
   string app_id = 1;
   Sandbox definition = 2;
@@ -4008,7 +4022,8 @@ message PersistentSandboxGetRequest {
 
 message PersistentSandboxGetResponse {
   string persistent_sandbox_id = 1;
-  string sandbox_id = 2;
+  // The most recent session, which may be running or already finished. Unset if there has never been one.
+  optional string current_sandbox_id = 2;
   // Set once the persistent Sandbox is terminated; unset otherwise.
   google.protobuf.Timestamp terminated_at = 3;
 }
@@ -4031,7 +4046,10 @@ message PersistentSandboxTerminateRequest {
   string persistent_sandbox_id = 1;
 }
 
-message PersistentSandboxTerminateResponse {}
+message PersistentSandboxTerminateResponse {
+  // The last session of the persistent Sandbox. Unset if it never had one.
+  optional string last_session_sandbox_id = 1;
+}
 
 message PersistentSandboxTunnelsListRequest {
   string persistent_sandbox_id = 1;
@@ -4430,6 +4448,11 @@ message Sandbox {
   // sandbox use the value from the sandbox's create request, and the value on
   // a sidecar's own definition is ignored.
   OidcSubjectVersion oidc_subject_version = 45;
+
+  // How long the Sandbox drains before it stops at its timeout or when idle:
+  // it refuses new exec commands and lets running ones finish for up to this
+  // long. Only persistent Sandboxes accept it for now.
+  optional uint32 drain_timeout_secs = 46;
 }
 
 message SandboxContainerCreateV2Request {
@@ -5368,6 +5391,19 @@ message StringMap {
   map<string, string> contents = 1;
 }
 
+message SxSandboxCreateConnectTokenRequest {
+  string sx_id = 1;
+  string user_metadata = 2;
+  // Uses port 8080 if unspecified.
+  optional uint32 port = 3;
+}
+
+message SxSandboxCreateConnectTokenResponse {
+  // Stays the same across the SX Sandbox's sessions for a given port and user metadata.
+  string url = 1;
+  string token = 2;
+}
+
 message SxSandboxCreateRequest {
   string app_id = 1;
   Sandbox definition = 2;
@@ -5388,8 +5424,9 @@ message SxSandboxGetRequest {
 
 message SxSandboxGetResponse {
   string sx_id = 1;
-  // The Sandbox running the current session. Empty while no session runs.
-  string sandbox_id = 2;
+  // The Sandbox of the most recent session that started, which may be running or already finished. Unset if no
+  // session has started.
+  optional string current_sandbox_id = 2;
   // Set once the SX Sandbox is terminated; unset otherwise.
   google.protobuf.Timestamp terminated_at = 3;
 }
@@ -5404,7 +5441,11 @@ message SxSandboxPauseRequest {
   string sx_id = 1;
 }
 
-message SxSandboxPauseResponse {}
+message SxSandboxPauseResponse {
+  // The Sandbox of the session being paused, which is stopped unless it has already finished. Unset if the SX Sandbox
+  // was already paused.
+  optional string sandbox_id = 1;
+}
 
 message SxSandboxResumeRequest {
   string sx_id = 1;
@@ -5419,7 +5460,10 @@ message SxSandboxTerminateRequest {
   string sx_id = 1;
 }
 
-message SxSandboxTerminateResponse {}
+message SxSandboxTerminateResponse {
+  // The Sandbox of the last session that started. Unset if no session started.
+  optional string last_session_sandbox_id = 1;
+}
 
 message SxSandboxTunnelsListRequest {
   string sx_id = 1;
@@ -6347,6 +6391,7 @@ service ModalClient {
 
   // Persistent sandboxes
   rpc PersistentSandboxCreate(PersistentSandboxCreateRequest) returns (PersistentSandboxCreateResponse);
+  rpc PersistentSandboxCreateConnectToken(PersistentSandboxCreateConnectTokenRequest) returns (PersistentSandboxCreateConnectTokenResponse);
   rpc PersistentSandboxGet(PersistentSandboxGetRequest) returns (PersistentSandboxGetResponse);
   rpc PersistentSandboxResume(PersistentSandboxResumeRequest) returns (PersistentSandboxResumeResponse);
   rpc PersistentSandboxTerminate(PersistentSandboxTerminateRequest) returns (PersistentSandboxTerminateResponse);
@@ -6452,6 +6497,7 @@ service ModalClient {
 
   // SX Sandboxes
   rpc SxSandboxCreate(SxSandboxCreateRequest) returns (SxSandboxCreateResponse);
+  rpc SxSandboxCreateConnectToken(SxSandboxCreateConnectTokenRequest) returns (SxSandboxCreateConnectTokenResponse);
   rpc SxSandboxGet(SxSandboxGetRequest) returns (SxSandboxGetResponse);
   rpc SxSandboxPause(SxSandboxPauseRequest) returns (SxSandboxPauseResponse);
   rpc SxSandboxResume(SxSandboxResumeRequest) returns (SxSandboxResumeResponse);
